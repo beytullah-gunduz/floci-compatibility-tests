@@ -1576,7 +1576,7 @@ def run_kinesis():
 def run_cloudwatch_metrics():
     print("--- CloudWatch Metrics Tests ---")
     cw = client("cloudwatch")
-    ns_a = "TestApp/PySdkMetricsTests"
+    ns_a = f"TestApp/PySdkMetricsTests/{int(time.time() * 1000)}"
     ns_b = "TestApp/OtherNamespace"
     now = datetime.datetime.now(datetime.timezone.utc)
 
