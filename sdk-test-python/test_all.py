@@ -594,6 +594,30 @@ def run_s3():
     except Exception as e:
         check("S3 DeleteBucketTagging", False, e)
 
+    non_ascii_src = "src/テスト画像.png"
+    non_ascii_dst = "dst/テスト画像.png"
+    try:
+        s3.put_object(Bucket=bucket, Key=non_ascii_src, Body=b"non-ascii content")
+        r = s3.copy_object(
+            CopySource={"Bucket": bucket, "Key": non_ascii_src},
+            Bucket=bucket, Key=non_ascii_dst,
+        )
+        check("S3 CopyObject non-ASCII key", bool(r.get("CopyObjectResult")))
+    except Exception as e:
+        check("S3 CopyObject non-ASCII key", False, e)
+
+    try:
+        r = s3.get_object(Bucket=bucket, Key=non_ascii_dst)
+        check("S3 GetObject non-ASCII copy", r["Body"].read() == b"non-ascii content")
+    except Exception as e:
+        check("S3 GetObject non-ASCII copy", False, e)
+
+    try:
+        s3.delete_object(Bucket=bucket, Key=non_ascii_src)
+        s3.delete_object(Bucket=bucket, Key=non_ascii_dst)
+    except Exception:
+        pass
+
     dest_bucket = "py-sdk-test-bucket-copy"
     dest_key = "copied-file.txt"
     try:

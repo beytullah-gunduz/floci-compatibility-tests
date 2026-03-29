@@ -35,6 +35,23 @@ fn check(name: &str, result: Result<(), String>) {
     }
 }
 
+// Percent-encodes non-ASCII bytes in an S3 key, preserving / as a path separator.
+// The Rust SDK does not URL-encode CopySource headers, so this must be done manually.
+fn s3_encode_key(key: &str) -> String {
+    let mut out = String::with_capacity(key.len());
+    for b in key.bytes() {
+        match b {
+            b'A'..=b'Z' | b'a'..=b'z' | b'0'..=b'9' | b'-' | b'_' | b'.' | b'~' | b'/' => {
+                out.push(b as char);
+            }
+            _ => {
+                out.push_str(&format!("%{:02X}", b));
+            }
+        }
+    }
+    out
+}
+
 fn ok() -> Result<(), String> {
     Ok(())
 }
@@ -187,6 +204,37 @@ async fn run_s3(endpoint: &str) {
     {
         Ok(_) => check("S3 CopyObject", ok()),
         Err(e) => check("S3 CopyObject", err(e)),
+    }
+
+    // CopyObject with non-ASCII (multibyte) key — regression: issue #93
+    // The Rust SDK does not URL-encode CopySource headers; encode the key manually.
+    let non_ascii_key = "src/テスト画像.png";
+    let non_ascii_dst = "dst/テスト画像.png";
+    match s3
+        .put_object()
+        .bucket(bucket)
+        .key(non_ascii_key)
+        .body(bytes::Bytes::from("non-ascii content").into())
+        .send()
+        .await
+    {
+        Ok(_) => {
+            let non_ascii_copy_source = format!("{}/{}", bucket, s3_encode_key(non_ascii_key));
+            match s3
+                .copy_object()
+                .bucket(bucket)
+                .copy_source(&non_ascii_copy_source)
+                .key(non_ascii_dst)
+                .send()
+                .await
+            {
+                Ok(_) => check("S3 CopyObject non-ASCII key", ok()),
+                Err(e) => check("S3 CopyObject non-ASCII key", err(e)),
+            }
+            let _ = s3.delete_object().bucket(bucket).key(non_ascii_key).send().await;
+            let _ = s3.delete_object().bucket(bucket).key(non_ascii_dst).send().await;
+        }
+        Err(e) => check("S3 CopyObject non-ASCII key", err(e)),
     }
 
     // GetBucketLocation — with LocationConstraint bucket

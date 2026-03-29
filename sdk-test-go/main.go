@@ -13,6 +13,7 @@ import (
 	"archive/zip"
 	"bytes"
 	"context"
+	"net/url"
 	"encoding/json"
 	"fmt"
 	"os"
@@ -337,6 +338,35 @@ func runS3(cfg aws.Config) {
 		Key:        aws.String("copy-" + key),
 	})
 	check("S3 CopyObject", err)
+
+	// CopyObject with non-ASCII (multibyte) key — regression: issue #93
+	// The Go SDK does not URL-encode CopySource headers; encode each path segment manually.
+	nonAsciiKey := "src/テスト画像.png"
+	nonAsciiDst := "dst/テスト画像.png"
+	encodedNonAsciiKey := strings.Join(func() []string {
+		segs := strings.Split(nonAsciiKey, "/")
+		for i, s := range segs {
+			segs[i] = url.PathEscape(s)
+		}
+		return segs
+	}(), "/")
+	_, err = svc.PutObject(ctx, &s3.PutObjectInput{
+		Bucket: aws.String(bucket),
+		Key:    aws.String(nonAsciiKey),
+		Body:   strings.NewReader("non-ascii content"),
+	})
+	if err == nil {
+		_, err = svc.CopyObject(ctx, &s3.CopyObjectInput{
+			Bucket:     aws.String(bucket),
+			CopySource: aws.String(bucket + "/" + encodedNonAsciiKey),
+			Key:        aws.String(nonAsciiDst),
+		})
+		check("S3 CopyObject non-ASCII key", err)
+		svc.DeleteObject(ctx, &s3.DeleteObjectInput{Bucket: aws.String(bucket), Key: aws.String(nonAsciiKey)})
+		svc.DeleteObject(ctx, &s3.DeleteObjectInput{Bucket: aws.String(bucket), Key: aws.String(nonAsciiDst)})
+	} else {
+		check("S3 CopyObject non-ASCII key", err)
+	}
 
 	// Large object upload (25 MB) — validates fix for upload size limit
 	const largeKey = "large-object-25mb.bin"

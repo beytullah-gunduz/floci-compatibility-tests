@@ -217,6 +217,21 @@ public class S3AdvancedTests implements TestGroup {
                         && "application/json".equals(head.contentType()));
             } catch (Exception e) { ctx.check("S3 CopyObject REPLACE metadata", false, e); }
 
+            // 13. CopyObject with non-ASCII (multibyte) key
+            try {
+                String nonAsciiKey = "src/テスト画像.png";
+                String nonAsciiDst = "dst/テスト画像.png";
+                s3.putObject(b -> b.bucket(bucket).key(nonAsciiKey), RequestBody.fromString("non-ascii content"));
+                s3.copyObject(CopyObjectRequest.builder()
+                        .sourceBucket(bucket).sourceKey(nonAsciiKey)
+                        .destinationBucket(bucket).destinationKey(nonAsciiDst)
+                        .build());
+                software.amazon.awssdk.core.ResponseBytes<software.amazon.awssdk.services.s3.model.GetObjectResponse> resp =
+                        s3.getObjectAsBytes(b -> b.bucket(bucket).key(nonAsciiDst));
+                ctx.check("S3 CopyObject non-ASCII key",
+                        "non-ascii content".equals(resp.asUtf8String()));
+            } catch (Exception e) { ctx.check("S3 CopyObject non-ASCII key", false, e); }
+
             // Cleanup
             try {
                 ListObjectsV2Response list = s3.listObjectsV2(b -> b.bucket(bucket));
